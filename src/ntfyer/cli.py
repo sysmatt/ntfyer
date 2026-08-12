@@ -121,16 +121,19 @@ def build_waiting_parent() -> argparse.ArgumentParser:
     p.add_argument(
         "--handler", metavar="CMD",
         help="Command to run when a message arrives. %%TITLE%%, %%TOPIC%%, %%ID%%, "
-             "%%PRIORITY%%, %%TAGS%%, %%TIME%%, and %%ATTACHMENT%% (with "
-             "--save-attachment) are always substituted into CMD's arguments "
-             "if present (empty string if the message lacks that field). "
-             "%%MESSAGE%% is special: if CMD contains it, the message is "
-             "substituted there too; otherwise the message is delivered per "
-             "--handler-input, independent of the other placeholders — e.g. "
-             "the message can arrive on stdin while %%TITLE%% is still "
-             "substituted into an argument. CMD is parsed with shell-style "
-             "quoting but never executed through a shell, so field content "
-             "can't inject additional commands.",
+             "%%PRIORITY%%, %%TAGS%%, and %%TIME%% are always substituted into "
+             "CMD's arguments if present (empty string if the message lacks "
+             "that field). %%ATTACHMENT%% (with --save-attachment) works the "
+             "same way but with no attachment, a standalone %%ATTACHMENT%% "
+             "argument is omitted from CMD entirely rather than becoming an "
+             "empty string, since a stray empty argument breaks many "
+             "argparse-based tools. %%MESSAGE%% is special: if CMD contains "
+             "it, the message is substituted there too; otherwise the "
+             "message is delivered per --handler-input, independent of the "
+             "other placeholders — e.g. the message can arrive on stdin "
+             "while %%TITLE%% is still substituted into an argument. CMD is "
+             "parsed with shell-style quoting but never executed through a "
+             "shell, so field content can't inject additional commands.",
     )
     p.add_argument(
         "--handler-input", choices=["stdin", "arg", "env"], default="stdin",
@@ -234,9 +237,34 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+# Flags whose values are expected to routinely start with '-' (e.g.
+# --handler-attachment-arg --logo). argparse's tokenizer classifies any
+# unrecognized '-'/'--'-prefixed argument as "looks like an option" before
+# it ever tries to match it to a specific flag's value, so `--flag --logo`
+# fails with "expected one argument" no matter how the flag itself is
+# declared — only `--flag=--logo` is unambiguous. Rather than requiring
+# everyone to know that, splice the space-separated form into the '='
+# form here, before argparse ever sees it, so both spellings just work.
+DASH_VALUE_FLAGS = {"--handler-attachment-arg"}
+
+
+def _normalize_dashed_values(argv: list[str]) -> list[str]:
+    out = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok in DASH_VALUE_FLAGS and i + 1 < len(argv):
+            out.append(f"{tok}={argv[i + 1]}")
+            i += 2
+            continue
+        out.append(tok)
+        i += 1
+    return out
+
+
 def main(argv=None) -> int:
     parser = build_parser()
-    args = parser.parse_args(argv)
+    args = parser.parse_args(_normalize_dashed_values(sys.argv[1:] if argv is None else argv))
 
     try:
         cfg = config.load_ini(args.ini)

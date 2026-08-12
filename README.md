@@ -260,7 +260,7 @@ received message (empty string if that field isn't present on it):
 | `%PRIORITY%`   | priority, `1`-`5` (empty if not set)          |
 | `%TAGS%`       | raw tags, comma-joined (not emoji-rendered)   |
 | `%TIME%`       | unix timestamp the message was sent           |
-| `%ATTACHMENT%` | local path to a saved attachment — see **Attachments** below; empty without `--save-attachment` |
+| `%ATTACHMENT%` | local path to a saved attachment — see **Attachments** below; *omitted from argv entirely* without one, not an empty string |
 
 `%TITLE%`/`%TOPIC%`/`%ID%`/`%PRIORITY%`/`%TAGS%`/`%TIME%`/`%ATTACHMENT%` are
 **always** substituted into `CMD`'s arguments when present, regardless of
@@ -269,7 +269,8 @@ still substituted into an argument, in the same invocation. `%MESSAGE%` is
 the one exception: if `CMD` contains it, arg mode is used automatically for
 the message *specifically* (and `--handler-input` doesn't need to be set);
 otherwise the message is delivered per `--handler-input`, piped to stdin
-(default) or exposed as `$MESSAGE`.
+(default) or exposed as `$MESSAGE`. `%ATTACHMENT%` is also an exception to
+"absent substitutes as empty string" — see **Attachments** below.
 
 **Security model:** `CMD` is parsed once with `shlex.split()` — so quoting
 behaves the way it would in a shell — and then each placeholder is
@@ -297,6 +298,21 @@ into `DIR`, and makes the local path available to `--handler` as
 `--save-attachment` wasn't given, that's a startup error, not a silent
 empty string.
 
+Unlike every other placeholder, a standalone `%ATTACHMENT%` token (not
+embedded in a larger argument) is **omitted from argv entirely** when
+there's no attachment on that message, rather than becoming an empty-string
+argument — a stray `''` is enough to break many argparse-based handler
+tools, and there's no legitimate use for it here. `/path/to/script.sh
+%ATTACHMENT%` becomes just `/path/to/script.sh` with no attachment, not
+`/path/to/script.sh ''`. If `%ATTACHMENT%` is the *only* thing in `CMD`,
+a message with no attachment makes the handler fail outright with a clear
+error rather than trying to run an empty command. (A `%ATTACHMENT%`
+embedded inside a larger token, e.g. `file=%ATTACHMENT%`, can't be cleanly
+omitted without leaving `file=` dangling, so that specific case still falls
+back to substituting an empty string — use `--handler-attachment-arg`
+below instead of hand-pairing a flag with a bare `%ATTACHMENT%` token if
+you want the omit-entirely behavior for a flag+value pair too.)
+
 - `DIR` must already exist — ntfyer fails fast at startup rather than
   creating it (same rule as `--attach`/`--ini`: paths you give it are
   expected to already exist).
@@ -310,15 +326,14 @@ empty string.
   it aborts the download and leaves no partial file behind.
 - A failed download (network error, 404, size cap, disk full) is logged as
   an error, but `listen`/`ask` keeps going and the handler still runs, with
-  `%ATTACHMENT%` empty — the same "log it, don't block on it" treatment as
-  a handler failure itself.
+  `%ATTACHMENT%` treated the same as "no attachment" (omitted, per below) —
+  the same "log it, don't block on it" treatment as a handler failure
+  itself.
 
 ### --handler-attachment-arg / --purge-attachment
 
-`%ATTACHMENT%` in `--handler` normally expands to one thing: the local
-path, or an empty string if there's nothing to pass. Two flags refine that
-for the common case of wrapping a real CLI tool that wants the file behind
-its own flag:
+Two flags refine `%ATTACHMENT%` handling further, for the common case of
+wrapping a real CLI tool that wants the file behind its own flag:
 
 ```
 ntfyer listen --topic my-topic --save-attachment ./downloads \
@@ -332,10 +347,14 @@ ntfyer listen --topic my-topic --save-attachment ./downloads \
   its *own* argument (not embedded in a larger one like `--file=%ATTACHMENT%`,
   which is left alone) **and** there's actually a file to pass, it expands
   to *two* argv entries — `ARG` followed by the path — instead of one. With
-  no attachment on that message, it still just collapses to nothing (no
-  `ARG` either), exactly like `%ATTACHMENT%` always has. If `ARG` itself
-  starts with `-` (as in the example above), use `--handler-attachment-arg=--logo`
-  — otherwise argparse tries to parse it as a separate flag.
+  no attachment on that message, both are omitted (no `ARG`, no path, no
+  empty string) — the flag simply isn't there at all, exactly as if you'd
+  hand-typed `--verbose` alone with no `--logo` anywhere. `ARG` can be
+  given with a leading `-`/`--` either as a separate word or joined with
+  `=` (`--handler-attachment-arg --logo` and `--handler-attachment-arg=--logo`
+  both work) — ntfyer normalizes this itself before argparse sees it, so
+  you don't need to know why a bare `--logo` would otherwise look like a
+  flag of its own.
 - **`--purge-attachment`** (requires `--save-attachment` and `--handler`):
   deletes the downloaded file right after the handler exits, whether it
   succeeded, failed, or errored out — the download was only ever meant to
