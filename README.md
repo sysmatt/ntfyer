@@ -60,6 +60,11 @@ username = myuser
 password = mypassword
 # or, instead of username/password:
 # token  = tk_abc123...
+
+[logging]
+level   = verbose    # trace | debug | verbose | info
+logfile = /var/log/ntfyer.log
+syslog  = true
 ```
 
 - `[default] profile=` picks the profile used when `--profile` isn't given.
@@ -68,6 +73,9 @@ password = mypassword
   guessing which one you meant.
 - With no profile configured at all, ntfyer talks to the public
   `https://ntfy.sh` with no auth.
+- `[logging]` is optional and only acts as a fallback for whichever of
+  `--verbose`/`--debug`/`--trace`/`--log-file`/`--syslog` isn't given on the
+  CLI — see **Logging** below.
 
 ### Environment variable overrides
 
