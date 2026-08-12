@@ -23,6 +23,10 @@ token (not embedded in a larger argument) and attachment_arg is given, it
 expands to *two* argv entries (attachment_arg, path) instead of one —
 but only when there's actually a file to pass; with no attachment it still
 just collapses to an empty string, same as every other placeholder.
+
+At --debug, the fully-substituted argv is logged via shlex.join() right
+before it runs — quoted the way a shell would, so an empty-string argument
+or one containing spaces is visually unambiguous in the log line.
 """
 
 import os
@@ -53,6 +57,7 @@ def run_handler(
     cmd: str,
     msg: dict,
     input_mode: str,
+    log,
     *,
     attachment_path: str | None = None,
     attachment_arg: str | None = None,
@@ -90,6 +95,8 @@ def run_handler(
         env = os.environ.copy()
         env["MESSAGE"] = message
         kwargs["env"] = env
+
+    log.debug(f"handler command ({mode} mode): {shlex.join(argv)}")
 
     try:
         result = subprocess.run(argv, shell=False, **kwargs)

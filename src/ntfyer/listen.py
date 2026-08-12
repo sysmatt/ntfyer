@@ -52,7 +52,7 @@ def handle_message(
 
     try:
         rc = handlers.run_handler(
-            args.handler, msg, args.handler_input,
+            args.handler, msg, args.handler_input, log,
             attachment_path=attachment_path, attachment_arg=args.handler_attachment_arg,
         )
         log.verbose(f"handler exited {rc}")

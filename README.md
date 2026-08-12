@@ -279,6 +279,12 @@ Field content is never re-parsed as shell syntax, so a title or message
 containing backticks, `;`, `$(...)`, or quotes cannot inject a second
 command or otherwise escape its argument, no matter what it contains.
 
+At `--debug`, the fully-substituted argv is logged right before it runs,
+quoted with `shlex.join()` the way a shell would — so it's easy to see
+exactly what will execute and where argument boundaries actually fall
+(e.g. an empty-string argument shows as `''`, one containing spaces shows
+quoted as a single argument). Not shown at plain `--verbose`.
+
 ## Attachments
 
 ```
