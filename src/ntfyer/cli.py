@@ -120,10 +120,15 @@ def build_waiting_parent() -> argparse.ArgumentParser:
     )
     p.add_argument(
         "--handler", metavar="CMD",
-        help="Command to run when a message arrives. If CMD contains %%MESSAGE%%, "
-             "the message is substituted into that argument; otherwise it's "
-             "delivered per --handler-input. CMD is parsed with shell-style "
-             "quoting but never executed through a shell, so message content "
+        help="Command to run when a message arrives. %%TITLE%%, %%TOPIC%%, %%ID%%, "
+             "%%PRIORITY%%, %%TAGS%%, and %%TIME%% are always substituted into CMD's "
+             "arguments if present (empty string if the message lacks that "
+             "field). %%MESSAGE%% is special: if CMD contains it, the message "
+             "is substituted there too; otherwise the message is delivered "
+             "per --handler-input, independent of the other placeholders — "
+             "e.g. the message can arrive on stdin while %%TITLE%% is still "
+             "substituted into an argument. CMD is parsed with shell-style "
+             "quoting but never executed through a shell, so field content "
              "can't inject additional commands.",
     )
     p.add_argument(

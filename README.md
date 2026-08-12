@@ -239,25 +239,39 @@ Only one handler per invocation (no chaining, for now).
 --handler-input stdin|arg|env   # default: stdin
 ```
 
-- If `CMD` contains the literal placeholder `%MESSAGE%`, arg mode is used
-  automatically and `--handler-input` doesn't need to be set.
-- Otherwise, the message is delivered per `--handler-input`: piped to stdin
-  (default), or exposed as the `$MESSAGE` environment variable.
+`CMD` can reference any of these placeholders, substituted from the
+received message (empty string if that field isn't present on it):
+
+| Placeholder  | Value                                    |
+|--------------|-------------------------------------------|
+| `%MESSAGE%`  | the message body                          |
+| `%TITLE%`    | title                                     |
+| `%TOPIC%`    | topic name                                |
+| `%ID%`       | ntfy's message ID                         |
+| `%PRIORITY%` | priority, `1`-`5` (empty if not set)      |
+| `%TAGS%`     | raw tags, comma-joined (not emoji-rendered) |
+| `%TIME%`     | unix timestamp the message was sent       |
+
+`%TITLE%`/`%TOPIC%`/`%ID%`/`%PRIORITY%`/`%TAGS%`/`%TIME%` are **always**
+substituted into `CMD`'s arguments when present, regardless of
+`--handler-input` — so the message can be piped to stdin while `%TITLE%` is
+still substituted into an argument, in the same invocation. `%MESSAGE%` is
+the one exception: if `CMD` contains it, arg mode is used automatically for
+the message *specifically* (and `--handler-input` doesn't need to be set);
+otherwise the message is delivered per `--handler-input`, piped to stdin
+(default) or exposed as `$MESSAGE`.
 
 **Security model:** `CMD` is parsed once with `shlex.split()` — so quoting
-behaves the way it would in a shell — and then `%MESSAGE%` is substituted as
-a literal substring *within each already-split token*. The resulting argv
-list is executed with `subprocess.run(argv, shell=False)`. The message is
-never re-parsed as shell syntax, so a reply containing backticks, `;`,
-`$(...)`, or quotes cannot inject a second command or otherwise escape its
-argument, no matter what it contains.
+behaves the way it would in a shell — and then each placeholder is
+substituted as a literal substring *within each already-split token*. The
+resulting argv list is executed with `subprocess.run(argv, shell=False)`.
+Field content is never re-parsed as shell syntax, so a title or message
+containing backticks, `;`, `$(...)`, or quotes cannot inject a second
+command or otherwise escape its argument, no matter what it contains.
 
 ## Parking lot
 
 Ideas noted for after the first round of features lands:
 
-- Additional `%KEY%`-style substitution placeholders for handlers beyond
-  `%MESSAGE%` — e.g. things that come over in the reply such as topic,
-  title, priority, tags.
 - A dedicated reply topic for `ask` (instead of same-topic correlation), to
   avoid picking up an unrelated message as the reply.

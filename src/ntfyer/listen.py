@@ -25,7 +25,7 @@ def handle_message(msg: dict, args: argparse.Namespace, log, *, label: str = "re
         return 0
 
     try:
-        rc = handlers.run_handler(args.handler, text, args.handler_input)
+        rc = handlers.run_handler(args.handler, msg, args.handler_input)
         log.verbose(f"handler exited {rc}")
         if rc != 0:
             log.warning(f"handler exited non-zero: {rc}")
