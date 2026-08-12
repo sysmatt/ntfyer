@@ -121,12 +121,13 @@ def build_waiting_parent() -> argparse.ArgumentParser:
     p.add_argument(
         "--handler", metavar="CMD",
         help="Command to run when a message arrives. %%TITLE%%, %%TOPIC%%, %%ID%%, "
-             "%%PRIORITY%%, %%TAGS%%, and %%TIME%% are always substituted into CMD's "
-             "arguments if present (empty string if the message lacks that "
-             "field). %%MESSAGE%% is special: if CMD contains it, the message "
-             "is substituted there too; otherwise the message is delivered "
-             "per --handler-input, independent of the other placeholders — "
-             "e.g. the message can arrive on stdin while %%TITLE%% is still "
+             "%%PRIORITY%%, %%TAGS%%, %%TIME%%, and %%ATTACHMENT%% (with "
+             "--save-attachment) are always substituted into CMD's arguments "
+             "if present (empty string if the message lacks that field). "
+             "%%MESSAGE%% is special: if CMD contains it, the message is "
+             "substituted there too; otherwise the message is delivered per "
+             "--handler-input, independent of the other placeholders — e.g. "
+             "the message can arrive on stdin while %%TITLE%% is still "
              "substituted into an argument. CMD is parsed with shell-style "
              "quoting but never executed through a shell, so field content "
              "can't inject additional commands.",
@@ -135,6 +136,31 @@ def build_waiting_parent() -> argparse.ArgumentParser:
         "--handler-input", choices=["stdin", "arg", "env"], default="stdin",
         help="How the message reaches the handler when %%MESSAGE%% isn't used "
              "in --handler (default: stdin). env exposes it as $MESSAGE.",
+    )
+    p.add_argument(
+        "--save-attachment", metavar="DIR",
+        help="Download a received message's attachment (if any) into DIR "
+             "(must already exist), made available to --handler as "
+             "%%ATTACHMENT%% (the local path). Landed filename is based on "
+             "the sender-provided name, deduplicated as NAME-XXXXXXXX.ext on "
+             "conflict. Downloads are capped at 100 MiB; a failed download "
+             "is logged but doesn't stop the handler from running.",
+    )
+    p.add_argument(
+        "--handler-attachment-arg", metavar="ARG",
+        help="Requires --save-attachment and %%ATTACHMENT%% in --handler. When "
+             "%%ATTACHMENT%% appears as its own argument and there's actually a "
+             "file to pass, it expands to ARG followed by the local path "
+             "(e.g. --handler-attachment-arg --logo turns %%ATTACHMENT%% into "
+             "'--logo /path/to/file') instead of just the path; with no "
+             "attachment it still collapses to nothing, same as %%ATTACHMENT%% "
+             "always has.",
+    )
+    p.add_argument(
+        "--purge-attachment", action="store_true",
+        help="Delete the downloaded attachment after --handler exits, "
+             "regardless of its exit code. Requires --save-attachment and "
+             "--handler.",
     )
     return p
 

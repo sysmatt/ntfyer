@@ -3,6 +3,7 @@
 import json
 import os
 import time
+from urllib.parse import urlparse
 
 import requests
 
@@ -11,6 +12,7 @@ from .config import Profile
 PRIORITY_WORDS = {"min": 1, "low": 2, "default": 3, "high": 4, "urgent": 5}
 
 DEFAULT_TIMEOUT = (10, 30)  # connect, read — seconds
+DOWNLOAD_CHUNK_SIZE = 65536
 
 # ntfy sends a keepalive line roughly every 30-45s on the JSON stream; this
 # needs comfortable margin above that so a normal quiet period between
@@ -28,12 +30,20 @@ class SubscribeError(Exception):
     pass
 
 
+class DownloadError(Exception):
+    pass
+
+
 def _auth(profile: Profile) -> tuple[dict, tuple | None]:
     if profile.auth_type == "token":
         return {"Authorization": f"Bearer {profile.token}"}, None
     if profile.auth_type == "basic":
         return {}, (profile.username, profile.password)
     return {}, None
+
+
+def _same_origin(server_url: str, other_url: str) -> bool:
+    return urlparse(server_url).netloc == urlparse(other_url).netloc
 
 
 def _escape_action_field(value) -> str:
@@ -198,3 +208,40 @@ def stream_json(profile: Profile, topic: str, *, timeout: float | None = None):
         if deadline and time.monotonic() >= deadline:
             return
         time.sleep(min(RECONNECT_BACKOFF, max(deadline - time.monotonic(), 0)) if deadline else RECONNECT_BACKOFF)
+
+
+def download_attachment(profile: Profile, url: str, fileobj, *, max_bytes: int) -> int:
+    """
+    Stream url's bytes into fileobj. profile's auth is only attached when url
+    is on the same host as profile.url — an attachment can point anywhere
+    (e.g. --attach-url'd to a third party), and credentials must never leak
+    to a host that isn't actually your ntfy server. Raises DownloadError on
+    any network/HTTP failure or if more than max_bytes arrive. Returns the
+    number of bytes written; does not delete/touch fileobj on failure —
+    that's the caller's responsibility (it owns the destination path).
+    """
+    headers = {}
+    basic_auth = None
+    if _same_origin(profile.url, url):
+        auth_headers, basic_auth = _auth(profile)
+        headers.update(auth_headers)
+
+    try:
+        resp = requests.get(url, headers=headers, auth=basic_auth, stream=True, timeout=DEFAULT_TIMEOUT)
+        resp.raise_for_status()
+    except requests.RequestException as e:
+        raise DownloadError(f"could not download {url}: {e}") from e
+
+    written = 0
+    try:
+        for chunk in resp.iter_content(chunk_size=DOWNLOAD_CHUNK_SIZE):
+            written += len(chunk)
+            if written > max_bytes:
+                raise DownloadError(f"attachment exceeds {max_bytes}-byte limit while downloading {url}")
+            fileobj.write(chunk)
+    except requests.RequestException as e:
+        raise DownloadError(f"download of {url} failed: {e}") from e
+    finally:
+        resp.close()
+
+    return written

@@ -13,7 +13,7 @@ def run_ask(args: argparse.Namespace, profile: Profile, log) -> int:
         log.error("no topic specified (use --topic, or set topic= in the active profile)")
         return 2
 
-    err = listen.check_handler_args(args)
+    err = listen.check_receive_args(args)
     if err:
         log.error(err)
         return 2
@@ -51,7 +51,7 @@ def run_ask(args: argparse.Namespace, profile: Profile, log) -> int:
 
     try:
         for msg in ntfy_api.stream_json(profile, topic, timeout=args.timeout):
-            listen.handle_message(msg, args, log, label="reply")
+            listen.handle_message(msg, args, profile, log, label="reply")
             return 0
     except KeyboardInterrupt:
         log.verbose("interrupted, stopping")

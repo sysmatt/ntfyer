@@ -218,6 +218,7 @@ ntfyer listen --topic my-topic --handler '/path/to/script.sh %MESSAGE%'
   non-zero exit) is logged and `listen` keeps running, unless `--once` is
   also given, in which case it exits right after regardless of how the
   handler went.
+- `--save-attachment DIR` — see **Attachments** below.
 
 ### ask
 
@@ -250,18 +251,19 @@ Only one handler per invocation (no chaining, for now).
 `CMD` can reference any of these placeholders, substituted from the
 received message (empty string if that field isn't present on it):
 
-| Placeholder  | Value                                    |
-|--------------|-------------------------------------------|
-| `%MESSAGE%`  | the message body                          |
-| `%TITLE%`    | title                                     |
-| `%TOPIC%`    | topic name                                |
-| `%ID%`       | ntfy's message ID                         |
-| `%PRIORITY%` | priority, `1`-`5` (empty if not set)      |
-| `%TAGS%`     | raw tags, comma-joined (not emoji-rendered) |
-| `%TIME%`     | unix timestamp the message was sent       |
+| Placeholder    | Value                                        |
+|----------------|-----------------------------------------------|
+| `%MESSAGE%`    | the message body                              |
+| `%TITLE%`      | title                                         |
+| `%TOPIC%`      | topic name                                    |
+| `%ID%`         | ntfy's message ID                             |
+| `%PRIORITY%`   | priority, `1`-`5` (empty if not set)          |
+| `%TAGS%`       | raw tags, comma-joined (not emoji-rendered)   |
+| `%TIME%`       | unix timestamp the message was sent           |
+| `%ATTACHMENT%` | local path to a saved attachment — see **Attachments** below; empty without `--save-attachment` |
 
-`%TITLE%`/`%TOPIC%`/`%ID%`/`%PRIORITY%`/`%TAGS%`/`%TIME%` are **always**
-substituted into `CMD`'s arguments when present, regardless of
+`%TITLE%`/`%TOPIC%`/`%ID%`/`%PRIORITY%`/`%TAGS%`/`%TIME%`/`%ATTACHMENT%` are
+**always** substituted into `CMD`'s arguments when present, regardless of
 `--handler-input` — so the message can be piped to stdin while `%TITLE%` is
 still substituted into an argument, in the same invocation. `%MESSAGE%` is
 the one exception: if `CMD` contains it, arg mode is used automatically for
@@ -277,9 +279,77 @@ Field content is never re-parsed as shell syntax, so a title or message
 containing backticks, `;`, `$(...)`, or quotes cannot inject a second
 command or otherwise escape its argument, no matter what it contains.
 
+## Attachments
+
+```
+ntfyer listen --topic my-topic --save-attachment ./downloads --handler '/path/to/script.sh %ATTACHMENT%'
+```
+
+`--save-attachment DIR` downloads a received message's attachment (if any)
+into `DIR`, and makes the local path available to `--handler` as
+`%ATTACHMENT%`. If `--handler` references `%ATTACHMENT%` but
+`--save-attachment` wasn't given, that's a startup error, not a silent
+empty string.
+
+- `DIR` must already exist — ntfyer fails fast at startup rather than
+  creating it (same rule as `--attach`/`--ini`: paths you give it are
+  expected to already exist).
+- The landed filename is based on the sender-provided name (just the
+  basename of whatever they set — see security note below), written as-is
+  on first use; on a collision with an existing file, it's retried as
+  `{name}-{8 random hex chars}{ext}` using an atomic exclusive-create, so
+  two ntfyer processes writing to the same `DIR` at once can't collide
+  onto the same file.
+- Downloads are capped at 100 MiB (not currently configurable); exceeding
+  it aborts the download and leaves no partial file behind.
+- A failed download (network error, 404, size cap, disk full) is logged as
+  an error, but `listen`/`ask` keeps going and the handler still runs, with
+  `%ATTACHMENT%` empty — the same "log it, don't block on it" treatment as
+  a handler failure itself.
+
+### --handler-attachment-arg / --purge-attachment
+
+`%ATTACHMENT%` in `--handler` normally expands to one thing: the local
+path, or an empty string if there's nothing to pass. Two flags refine that
+for the common case of wrapping a real CLI tool that wants the file behind
+its own flag:
+
+```
+ntfyer listen --topic my-topic --save-attachment ./downloads \
+  --handler '/usr/bin/mytool --logo %ATTACHMENT% --verbose' \
+  --handler-attachment-arg --logo \
+  --purge-attachment
+```
+
+- **`--handler-attachment-arg ARG`** (requires `--save-attachment` and
+  `%ATTACHMENT%` present in `--handler`): when `%ATTACHMENT%` appears as
+  its *own* argument (not embedded in a larger one like `--file=%ATTACHMENT%`,
+  which is left alone) **and** there's actually a file to pass, it expands
+  to *two* argv entries — `ARG` followed by the path — instead of one. With
+  no attachment on that message, it still just collapses to nothing (no
+  `ARG` either), exactly like `%ATTACHMENT%` always has. If `ARG` itself
+  starts with `-` (as in the example above), use `--handler-attachment-arg=--logo`
+  — otherwise argparse tries to parse it as a separate flag.
+- **`--purge-attachment`** (requires `--save-attachment` and `--handler`):
+  deletes the downloaded file right after the handler exits, whether it
+  succeeded, failed, or errored out — the download was only ever meant to
+  live long enough for the handler to use it.
+
+**Security model:** the sender-provided attachment name is untrusted input.
+It's reduced to `os.path.basename()` before being used as a filename (so
+`../../etc/cron.d/evil` becomes just `evil`), with an additional check that
+the resolved path still lands inside `DIR` as defense in depth. Separately,
+an attachment can point to *any* URL (that's what `--attach-url` is for),
+not just your ntfy server — so your profile's credentials (token or basic
+auth) are only ever attached to the download request when the attachment's
+host matches your configured server's host. A message crafted to point
+`%ATTACHMENT%` at some other server can't make ntfyer leak your ntfy
+credentials to it.
+
 ## Parking lot
 
 Ideas noted for after the first round of features lands:
 
 - A dedicated reply topic for `ask` (instead of same-topic correlation), to
   avoid picking up an unrelated message as the reply.
+- A configurable attachment size cap (currently a fixed 100 MiB).
